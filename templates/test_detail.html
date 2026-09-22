@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Test {{ record.test_id }}</h1>
+
+{% if record.alert_required and record.verification_status == 'PENDING' %}
+<div class="card" style="background:#fff3d6; border:1px solid #e0a800;">
+  <strong>⚠️ ALERT — Inconclusive result, immediate officer review required.</strong>
+  <p class="muted" style="margin-bottom:0;">No reference card matched confidently enough to issue a presumptive result. This test cannot proceed until a supervising officer reviews it below.</p>
+</div>
+{% endif %}
+
+<div class="flex-row">
+  <div>
+    <div class="card">
+      <h2>Captured image</h2>
+      <img class="test-image" src="{{ url_for('uploaded_file', filename=record.image_filename) }}">
+    </div>
+    {% if record.video_filename %}
+    <div class="card">
+      <h2>🎥 Reaction recording</h2>
+      <p class="muted">The full colour-change reaction, as recorded live by the operator.</p>
+      <video controls style="width:100%; border-radius:8px;">
+        <source src="{{ url_for('uploaded_file', filename=record.video_filename) }}">
+        Your browser doesn't support embedded video — download it instead.
+      </video>
+    </div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="card">
+      <h2>AI result</h2>
+      {% if record.ai_result %}
+        <p><span class="badge {{ record.ai_result }}">{{ record.ai_result }}</span>
+           &nbsp; confidence: {{ (record.ai_confidence * 100) | round(1) }}%</p>
+        <h2 style="font-size:14px; margin-bottom:4px;">Why this result</h2>
+        <p class="muted">{{ record.analysis or record.ai_explanation }}</p>
+        {% if record.classification and record.classification.matched_reference %}
+        <p class="muted">Matched reference card: <strong>{{ record.classification.matched_reference.name }}</strong>
+           ({{ record.classification.matched_reference.id }}), colour distance {{ record.classification.matched_reference.distance }}</p>
+        {% endif %}
+        {% if record.classification %}
+        <table>
+          <tr><th>Class</th><th>Confidence</th></tr>
+          {% for cls, conf in record.classification.confidences.items() %}
+          <tr><td>{{ cls }}</td><td>{{ (conf * 100) | round(1) }}%</td></tr>
+          {% endfor %}
+        </table>
+        {% endif %}
+      {% else %}
+        <p class="error">
+          Image quality check failed — no classification was produced.<br>
+          Reasons: {{ record.quality.reasons | join(', ') }}
+        </p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Officer verification</h2>
+      <p>Current status: <span class="badge {{ record.verification_status }}">{{ record.verification_status }}</span></p>
+      {% if record.verification_status == 'PENDING' %}
+      <form method="post" action="{{ url_for('verify_test', test_id=record.test_id) }}">
+        <label>Verifying officer ID</label>
+        <input type="text" name="verified_by" required>
+        <label>Note (optional)</label>
+        <input type="text" name="note">
+        <div style="margin-top:14px;">
+          <button type="submit" name="status" value="VERIFIED">Confirm AI result</button>
+          <button type="submit" name="status" value="REJECTED" class="danger">Reject</button>
+          <button type="submit" name="status" value="INCONCLUSIVE" class="secondary">Mark inconclusive</button>
+        </div>
+      </form>
+      {% else %}
+      <p class="muted">Verified by {{ record.verified_by }}. Note: {{ record.verification_note or "—" }}</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Secure digital record</h2>
+  <table>
+    <tr><th>Operator</th><td>{{ record.operator_id }}</td></tr>
+    <tr><th>Timestamp (UTC)</th><td>{{ record.timestamp }}
+        {% if record.capture_method == 'LIVE_CAPTURE' %}
+          <span class="badge VERIFIED">📷 Live capture</span>
+        {% else %}
+          <span class="badge PENDING">📁 File upload</span>
+        {% endif %}
+    </td></tr>
+    <tr><th>Location</th><td>{{ record.location or "—" }}</td></tr>
+    <tr><th>Image SHA-256</th><td class="mono">{{ record.image_hash }}</td></tr>
+    <tr><th>Record signature (HMAC)</th><td class="mono">{{ record.record_signature }}</td></tr>
+    <tr><th>Signature valid</th>
+        <td>{% if signature_valid %}<span class="badge VERIFIED">Valid — record unaltered</span>
+            {% else %}<span class="badge REJECTED">Invalid — record may be tampered</span>{% endif %}</td></tr>
+  </table>
+  <div style="margin-top:14px;">
+    <button class="secondary" onclick="runTamperCheck()">Check image for tampering</button>
+    <span id="tamper-result" class="muted" style="margin-left:10px;"></span>
+  </div>
+</div>
+
+<script>
+async function runTamperCheck() {
+  const el = document.getElementById('tamper-result');
+  el.textContent = 'Checking...';
+  const res = await fetch("{{ url_for('tamper_check', test_id=record.test_id) }}", { method: 'POST' });
+  const data = await res.json();
+  el.textContent = data.matches
+    ? '✅ Image hash matches stored record — no tampering detected.'
+    : '🚨 Image hash mismatch — the stored image file has changed since capture!';
+}
+</script>
+{% endblock %}

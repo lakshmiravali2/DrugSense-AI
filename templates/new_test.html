@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>New Field Test</h1>
+
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <div style="margin-bottom:16px;">
+    <button type="button" id="tab-camera" class="btn" onclick="switchMode('camera')">🎥 Record reaction</button>
+    <button type="button" id="tab-upload" class="btn secondary" onclick="switchMode('upload')">📁 Upload a photo</button>
+  </div>
+
+  <form method="post" enctype="multipart/form-data" id="test-form">
+    <label>Operator ID</label>
+    <input type="text" name="operator_id" placeholder="e.g. NCB-OFF-1042" required>
+
+    <label>Location (free text for prototype; production uses device GPS)</label>
+    <input type="text" name="location" placeholder="e.g. Checkpost 4, Sector 12">
+
+    <!-- Live video recording mode -->
+    <div id="camera-section">
+      <label>Record the reaction</label>
+      <p class="muted" style="margin-top:-4px;">
+        1) Start the camera and frame the test kit with the reference colour
+        card in the top-left corner. 2) Add the reagent to the sample and
+        press Record right as the reaction begins. 3) Press Stop once the
+        colour has settled — this captures the whole colour change on video
+        and grabs the final settled frame for AI analysis.
+      </p>
+      <video id="video-preview" autoplay playsinline muted style="width:100%; max-width:480px; border-radius:8px; background:#000; display:block;"></video>
+      <canvas id="capture-canvas" style="display:none;"></canvas>
+      <img id="captured-preview" style="width:100%; max-width:480px; border-radius:8px; display:none;">
+      <video id="recorded-preview" controls style="width:100%; max-width:480px; border-radius:8px; display:none; margin-top:10px;"></video>
+
+      <div style="margin-top:12px;">
+        <button type="button" id="btn-start-camera" onclick="startCamera()">Start camera</button>
+        <button type="button" id="btn-start-record" onclick="startRecording()" style="display:none;">🔴 Start recording</button>
+        <button type="button" id="btn-stop-record" onclick="stopRecordingAndCapture()" style="display:none;" class="danger">⏹ Stop &amp; capture result</button>
+        <button type="button" id="btn-retake" onclick="retake()" style="display:none;" class="secondary">Retake</button>
+      </div>
+      <p id="capture-status" class="muted" style="margin-top:8px;"></p>
+    </div>
+
+    <!-- Plain upload mode -->
+    <div id="upload-section" style="display:none;">
+      <label>Test image</label>
+      <input type="file" name="image_upload_only" id="upload-input" accept="image/*" onchange="handleManualUpload(this)">
+      <p class="muted">Timestamp will reflect when the file is uploaded, not when the photo was taken, and no reaction video will be attached. Use "Record reaction" for a full evidentiary capture.</p>
+    </div>
+
+    <!-- Actual fields submitted to the server -->
+    <input type="file" name="image" id="final-image-input" style="display:none;" required>
+    <input type="file" name="video" id="final-video-input" style="display:none;">
+    <input type="hidden" name="capture_timestamp" id="capture-timestamp-field">
+
+    <div style="margin-top:20px;">
+      <button type="submit" id="submit-btn" disabled>Run AI analysis</button>
+      <span class="muted" id="submit-hint">Record a reaction or select a photo first</span>
+    </div>
+  </form>
+</div>
+
+<script>
+let stream = null;
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordTimerInterval = null;
+let recordSeconds = 0;
+
+function switchMode(mode) {
+  const isCamera = mode === 'camera';
+  document.getElementById('camera-section').style.display = isCamera ? 'block' : 'none';
+  document.getElementById('upload-section').style.display = isCamera ? 'none' : 'block';
+  document.getElementById('tab-camera').className = isCamera ? 'btn' : 'btn secondary';
+  document.getElementById('tab-upload').className = isCamera ? 'btn secondary' : 'btn';
+  if (!isCamera) stopCamera();
+  resetSubmitState();
+}
+
+async function startCamera() {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+    const video = document.getElementById('video-preview');
+    video.srcObject = stream;
+    video.style.display = 'block';
+    document.getElementById('captured-preview').style.display = 'none';
+    document.getElementById('recorded-preview').style.display = 'none';
+    document.getElementById('btn-start-camera').style.display = 'none';
+    document.getElementById('btn-start-record').style.display = 'inline-block';
+    document.getElementById('btn-stop-record').style.display = 'none';
+    document.getElementById('btn-retake').style.display = 'none';
+    document.getElementById('capture-status').textContent = 'Camera live — position the test and reference card, then start recording.';
+  } catch (err) {
+    document.getElementById('capture-status').textContent =
+      'Could not access the camera (' + err.message + '). Use "Upload a photo" instead, or check browser camera permissions.';
+  }
+}
+
+function stopCamera() {
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+}
+
+function pickSupportedMimeType() {
+  const candidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+  for (const type of candidates) {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(type)) return type;
+  }
+  return '';
+}
+
+function startRecording() {
+  recordedChunks = [];
+  const mimeType = pickSupportedMimeType();
+  try {
+    mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+  } catch (err) {
+    document.getElementById('capture-status').textContent = 'Recording is not supported in this browser: ' + err.message;
+    return;
+  }
+  mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+  mediaRecorder.start();
+
+  recordSeconds = 0;
+  document.getElementById('capture-status').textContent = 'Recording... 0s (add the reagent now and watch the colour change)';
+  recordTimerInterval = setInterval(() => {
+    recordSeconds += 1;
+    document.getElementById('capture-status').textContent = 'Recording... ' + recordSeconds + 's — press Stop once the colour has settled';
+  }, 1000);
+
+  document.getElementById('btn-start-record').style.display = 'none';
+  document.getElementById('btn-stop-record').style.display = 'inline-block';
+}
+
+function stopRecordingAndCapture() {
+  clearInterval(recordTimerInterval);
+  const video = document.getElementById('video-preview');
+
+  mediaRecorder.onstop = () => {
+    const videoBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType || 'video/webm' });
+
+    // Grab the settled final frame right as recording stops -- this is what
+    // goes to the AI classifier, and this exact instant is what's timestamped.
+    const canvas = document.getElementById('capture-canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    const captureTimestamp = new Date().toISOString();
+
+    canvas.toBlob((frameBlob) => {
+      const stamp = captureTimestamp.replace(/[:.]/g, '-');
+      const imageFile = new File([frameBlob], 'capture_' + stamp + '.jpg', { type: 'image/jpeg' });
+      const videoExt = (mediaRecorder.mimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const videoFile = new File([videoBlob], 'reaction_' + stamp + '.' + videoExt, { type: videoBlob.type });
+
+      const imgDt = new DataTransfer();
+      imgDt.items.add(imageFile);
+      document.getElementById('final-image-input').files = imgDt.files;
+
+      const vidDt = new DataTransfer();
+      vidDt.items.add(videoFile);
+      document.getElementById('final-video-input').files = vidDt.files;
+
+      document.getElementById('capture-timestamp-field').value = captureTimestamp;
+
+      document.getElementById('captured-preview').src = URL.createObjectURL(frameBlob);
+      document.getElementById('captured-preview').style.display = 'block';
+
+      const recordedVideoEl = document.getElementById('recorded-preview');
+      recordedVideoEl.src = URL.createObjectURL(videoBlob);
+      recordedVideoEl.style.display = 'block';
+
+      video.style.display = 'none';
+      document.getElementById('btn-stop-record').style.display = 'none';
+      document.getElementById('btn-retake').style.display = 'inline-block';
+      document.getElementById('capture-status').textContent =
+        'Recorded ' + recordSeconds + 's, final frame captured at ' + captureTimestamp;
+
+      stopCamera();
+      enableSubmit();
+    }, 'image/jpeg', 0.92);
+  };
+
+  mediaRecorder.stop();
+}
+
+function retake() {
+  document.getElementById('capture-timestamp-field').value = '';
+  document.getElementById('final-image-input').value = '';
+  document.getElementById('final-video-input').value = '';
+  document.getElementById('captured-preview').style.display = 'none';
+  document.getElementById('recorded-preview').style.display = 'none';
+  document.getElementById('btn-retake').style.display = 'none';
+  disableSubmit();
+  startCamera();
+}
+
+function handleManualUpload(input) {
+  const dt = new DataTransfer();
+  if (input.files[0]) {
+    dt.items.add(input.files[0]);
+    document.getElementById('final-image-input').files = dt.files;
+    document.getElementById('final-video-input').value = '';
+    document.getElementById('capture-timestamp-field').value = '';
+    enableSubmit();
+  } else {
+    disableSubmit();
+  }
+}
+
+function enableSubmit() {
+  document.getElementById('submit-btn').disabled = false;
+  document.getElementById('submit-hint').style.display = 'none';
+}
+function disableSubmit() {
+  document.getElementById('submit-btn').disabled = true;
+  document.getElementById('submit-hint').style.display = 'inline';
+}
+function resetSubmitState() {
+  document.getElementById('final-image-input').value = '';
+  document.getElementById('final-video-input').value = '';
+  document.getElementById('capture-timestamp-field').value = '';
+  disableSubmit();
+}
+
+window.addEventListener('beforeunload', stopCamera);
+</script>
+{% endblock %}

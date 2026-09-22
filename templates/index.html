@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Field Testing Dashboard</h1>
+<div class="stats-grid">
+  <div class="stat-box"><div class="num">{{ stats.total }}</div><div class="label">Total tests</div></div>
+  <div class="stat-box"><div class="num">{{ stats.positive }}</div><div class="label">Positive</div></div>
+  <div class="stat-box"><div class="num">{{ stats.negative }}</div><div class="label">Negative</div></div>
+  <div class="stat-box"><div class="num">{{ stats.inconclusive }}</div><div class="label">Inconclusive</div></div>
+  <div class="stat-box"><div class="num">{{ stats.pending }}</div><div class="label">Pending review</div></div>
+  <div class="stat-box" style="{% if stats.alerts > 0 %}background:#fff3d6;{% endif %}">
+    <div class="num">{{ stats.alerts }}</div><div class="label">⚠️ Alerts pending</div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Prototype disclaimer</h2>
+  <p class="muted">
+    This is a student software prototype. Results are presumptive field-test
+    assistance only, require mandatory human officer verification, and do not
+    replace laboratory confirmatory testing.
+  </p>
+</div>
+
+<div class="card">
+  <h2>Quick actions</h2>
+  <a class="btn" href="{{ url_for('new_test') }}">+ Start new test</a>
+  <a class="btn secondary" href="{{ url_for('history') }}">Search test history</a>
+</div>
+{% endblock %}

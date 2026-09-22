@@ -1,0 +1,23 @@
+[
+  {
+    "id": "REF-POS-01",
+    "label": "POSITIVE",
+    "name": "Positive reaction pattern",
+    "lab": [45.0, 55.0, 35.0],
+    "description": "Strong reddish-purple colour shift consistent with a positive presumptive reaction for this reagent."
+  },
+  {
+    "id": "REF-NEG-01",
+    "label": "NEGATIVE",
+    "name": "Negative / no-reaction pattern",
+    "lab": [70.0, 0.0, 0.0],
+    "description": "Neutral tone with little to no colour shift from the unreacted reagent baseline."
+  },
+  {
+    "id": "REF-INC-01",
+    "label": "INCONCLUSIVE",
+    "name": "Ambiguous / weak reaction pattern",
+    "lab": [55.0, 15.0, -10.0],
+    "description": "Faint, mixed, or unusual colour shift that does not clearly match a known reaction pattern."
+  }
+]

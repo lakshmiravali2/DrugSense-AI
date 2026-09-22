@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Test History</h1>
+
+<div class="card">
+  <form method="get">
+    <div class="flex-row">
+      <div>
+        <label>Search (test ID / operator / location)</label>
+        <input type="text" name="q" value="{{ query }}">
+      </div>
+      <div>
+        <label>Result</label>
+        <select name="result">
+          <option value="">All</option>
+          <option value="POSITIVE" {% if result_filter=='POSITIVE' %}selected{% endif %}>Positive</option>
+          <option value="NEGATIVE" {% if result_filter=='NEGATIVE' %}selected{% endif %}>Negative</option>
+          <option value="INCONCLUSIVE" {% if result_filter=='INCONCLUSIVE' %}selected{% endif %}>Inconclusive</option>
+        </select>
+      </div>
+      <div>
+        <label>Verification status</label>
+        <select name="status">
+          <option value="">All</option>
+          <option value="PENDING" {% if status_filter=='PENDING' %}selected{% endif %}>Pending</option>
+          <option value="VERIFIED" {% if status_filter=='VERIFIED' %}selected{% endif %}>Verified</option>
+          <option value="REJECTED" {% if status_filter=='REJECTED' %}selected{% endif %}>Rejected</option>
+        </select>
+      </div>
+    </div>
+    <div style="margin-top:14px;"><button type="submit">Search</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <tr><th>Test ID</th><th>Time (UTC)</th><th>Operator</th><th>Result</th><th>Verification</th><th>Alert</th></tr>
+    {% for r in records %}
+    <tr>
+      <td><a href="{{ url_for('test_detail', test_id=r.test_id) }}">{{ r.test_id }}</a></td>
+      <td>{{ r.timestamp }}</td>
+      <td>{{ r.operator_id }}</td>
+      <td>{% if r.ai_result %}<span class="badge {{ r.ai_result }}">{{ r.ai_result }}</span>{% else %}—{% endif %}</td>
+      <td><span class="badge {{ r.verification_status }}">{{ r.verification_status }}</span></td>
+      <td>{% if r.alert_required %}⚠️{% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="muted">No tests found.</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # AI-Powered Digital Companion for Field Drug Testing — Working Prototype
 
 SIH26231 · Ministry of Home Affairs / Narcotics Control Bureau
